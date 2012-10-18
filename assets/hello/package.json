@@ -1,0 +1,9 @@
+{
+    "name":"hello",
+    "parent":"../package.json",
+    "output":{"hello.js":"."},
+    "dependencies": {
+        "$": "$",
+        "util":"0.0.1"
+    }
+}

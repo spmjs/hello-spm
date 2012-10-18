@@ -1,0 +1,1 @@
+define("util/0.0.1/util",[],function(e,t){t.random=function(e,t){return e+Math.round(Math.random()*(t-e))}});
