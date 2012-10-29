@@ -6,4 +6,4 @@ spm hello world
 
 checkout this repository
 
-then browse index-debug.html and index.html
+then browse index.html
