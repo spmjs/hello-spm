@@ -1,6 +1,6 @@
-define("hello/0.0.1/handle-text-debug", ["$-debug", "util/0.0.1/util-debug"], function(require, exports, module) {
+define("hellospm/hello/0.0.1/handle-text-debug", ["$-debug", "hellospm/util/0.0.1/util-debug"], function(require, exports, module) {
     var $ = require('$-debug')
-    var random = require('util/0.0.1/util-debug').random
+    var random = require('hellospm/util/0.0.1/util-debug').random
     
     function handleText(text){
         var min = random(30,70)
@@ -14,10 +14,9 @@ define("hello/0.0.1/handle-text-debug", ["$-debug", "util/0.0.1/util-debug"], fu
     
     module.exports = handleText
 })
-
-define("hello/0.0.1/hello-debug", ["./handle-text-debug", "$-debug", "util/0.0.1/util-debug"], function(require, exports, module) {
+define("hellospm/hello/0.0.1/hello-debug", ["./handle-text-debug", "$-debug", "hellospm/util/0.0.1/util-debug"], function(require, exports, module) {
     var $ = require('$-debug')
-    var random = require('util/0.0.1/util-debug').random
+    var random = require('hellospm/util/0.0.1/util-debug').random
     var handleText= require('./handle-text-debug')
     
     function Hello(){
