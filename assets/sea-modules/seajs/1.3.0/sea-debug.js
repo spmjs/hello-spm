@@ -1,6 +1,6 @@
 /**
  * @preserve SeaJS - A Module Loader for the Web
- * v1.2.1 | seajs.org | MIT Licensed
+ * v1.3.0 | seajs.org | MIT Licensed
  */
 
 
@@ -14,7 +14,7 @@ this.seajs = { _seajs: this.seajs }
  * The version of the framework. It will be replaced with "major.minor.patch"
  * when building.
  */
-seajs.version = '1.2.1'
+seajs.version = '1.3.0'
 
 
 /**
@@ -159,31 +159,45 @@ seajs._config = {
 /**
  * The tiny console
  */
-;(function(util, config) {
-
-  var AP = Array.prototype
-
+;(function(util) {
 
   /**
    * The safe wrapper of console.log/error/...
    */
   util.log = function() {
-    if (typeof console !== 'undefined') {
-      var args = AP.slice.call(arguments)
+    if (typeof console === 'undefined') return
 
-      var type = 'log'
-      var last = args[args.length - 1]
-      console[last] && (type = args.pop())
+    var args = Array.prototype.slice.call(arguments)
 
-      // Only show log info in debug mode
-      if (type === 'log' && !config.debug) return
+    var type = 'log'
+    var last = args[args.length - 1]
+    console[last] && (type = args.pop())
 
-      var out = type === 'dir' ? args[0] : AP.join.call(args, ' ')
-      console[type](out)
+    // Only show log info in debug mode
+    if (type === 'log' && !seajs.debug) return
+
+    if (console[type].apply) {
+      console[type].apply(console, args)
+      return
+    }
+
+    // See issue#349
+    var length = args.length
+    if (length === 1) {
+      console[type](args[0])
+    }
+    else if (length === 2) {
+      console[type](args[0], args[1])
+    }
+    else if (length === 3) {
+      console[type](args[0], args[1], args[2])
+    }
+    else {
+      console[type](args.join(' '))
     }
   }
 
-})(seajs._util, seajs._config)
+})(seajs._util)
 
 /**
  * Path utilities
@@ -329,6 +343,10 @@ seajs._config = {
       else if (util.isFunction(rule)) {
         ret = rule(ret)
       }
+    }
+
+    if (!isAbsolute(ret)) {
+      ret = realpath(dirname(pageUri) + ret)
     }
 
     if (ret !== uri) {
@@ -740,13 +758,16 @@ seajs._config = {
     var uris = resolve(ids, this.uri)
 
     this._load(uris, function() {
-      var args = util.map(uris, function(uri) {
-        return uri ? cachedModules[uri]._compile() : null
-      })
+      // Loads preload files introduced in modules before compiling.
+      preload(function() {
+        var args = util.map(uris, function(uri) {
+          return uri ? cachedModules[uri]._compile() : null
+        })
 
-      if (callback) {
-        callback.apply(null, args)
-      }
+        if (callback) {
+          callback.apply(null, args)
+        }
+      })
     })
   }
 
@@ -789,9 +810,8 @@ seajs._config = {
             }
           }
           // Maybe failed to fetch successfully, such as 404 or non-module.
-          // // In these cases, module.status stay at FETCHING or FETCHED.
+          // In these cases, just call cb function directly.
           else {
-            util.log('It is not a valid CMD module: ' + uri)
             cb()
           }
         }
@@ -816,7 +836,7 @@ seajs._config = {
     //  1. the module file is 404.
     //  2. the module file is not written with valid module format.
     //  3. other error cases.
-    if (module.status < STATUS.READY && !hasModifiers(module)) {
+    if (module.status < STATUS.SAVED && !hasModifiers(module)) {
       return null
     }
 
@@ -931,7 +951,7 @@ seajs._config = {
         }
       }
 
-      var module = save(resolvedUri, meta)
+      var module = Module._save(resolvedUri, meta)
 
       // For IE:
       // Assigns the first module in package to cachedModules[derivedUrl]
@@ -994,7 +1014,7 @@ seajs._config = {
   Module.STATUS = STATUS
   Module._resolve = util.id2Uri
   Module._fetch = util.fetch
-  Module.cache = cachedModules
+  Module._save = save
 
 
   // Helpers
@@ -1050,7 +1070,7 @@ seajs._config = {
 
           // Saves anonymous module meta data
           if (anonymousModuleMeta) {
-            save(uri, anonymousModuleMeta)
+            Module._save(uri, anonymousModuleMeta)
             anonymousModuleMeta = null
           }
 
@@ -1068,11 +1088,12 @@ seajs._config = {
           }
 
           // Calls callbackList
-          if (callbackList[requestUri]) {
-            util.forEach(callbackList[requestUri], function(fn) {
+          var fns = callbackList[requestUri]
+          if (fns) {
+            delete callbackList[requestUri]
+            util.forEach(fns, function(fn) {
               fn()
             })
-            delete callbackList[requestUri]
           }
 
         },
@@ -1133,7 +1154,7 @@ seajs._config = {
     return util.filter(module.dependencies, function(dep) {
       circularCheckStack = [uri]
 
-      var isCircular = isCircularWaiting(cachedModules[dep], uri)
+      var isCircular = isCircularWaiting(cachedModules[dep])
       if (isCircular) {
         circularCheckStack.push(uri)
         printCircularLog(circularCheckStack)
@@ -1143,7 +1164,7 @@ seajs._config = {
     })
   }
 
-  function isCircularWaiting(module, uri) {
+  function isCircularWaiting(module) {
     if (!module || module.status !== STATUS.SAVED) {
       return false
     }
@@ -1152,24 +1173,34 @@ seajs._config = {
     var deps = module.dependencies
 
     if (deps.length) {
-      if (util.indexOf(deps, uri) > -1) {
+      if (isOverlap(deps, circularCheckStack)) {
         return true
       }
 
       for (var i = 0; i < deps.length; i++) {
-        if (isCircularWaiting(cachedModules[deps[i]], uri)) {
+        if (isCircularWaiting(cachedModules[deps[i]])) {
           return true
         }
       }
-
-      return false
     }
 
+    circularCheckStack.pop()
     return false
   }
 
   function printCircularLog(stack, type) {
     util.log('Found circular dependencies:', stack.join(' --> '), type)
+  }
+
+  function isOverlap(arrA, arrB) {
+    var arrC = arrA.concat(arrB)
+    return arrC.length > util.unique(arrC).length
+  }
+
+  function preload(callback) {
+    var preloadMods = config.preload.slice()
+    config.preload = []
+    preloadMods.length ? globalModule._use(preloadMods, callback) : callback()
   }
 
 
@@ -1179,31 +1210,25 @@ seajs._config = {
   var globalModule = new Module(util.pageUri, STATUS.COMPILED)
 
   seajs.use = function(ids, callback) {
-    var preloadMods = config.preload
-
-    if (preloadMods.length) {
-      // Loads preload modules before all other modules.
-      globalModule._use(preloadMods, function() {
-        config.preload = []
-        globalModule._use(ids, callback)
-      })
-    }
-    else {
+    // Loads preload modules before all other modules.
+    preload(function() {
       globalModule._use(ids, callback)
-    }
+    })
 
+    // Chain
     return seajs
   }
 
 
   // For normal users
   seajs.define = Module._define
-  seajs.cache = Module.cache
+  seajs.cache = Module.cache = cachedModules
   seajs.find = Module._find
   seajs.modify = Module._modify
 
 
   // For plugin developers
+  Module.fetchedList = fetchedList
   seajs.pluginSDK = {
     Module: Module,
     util: util,
@@ -1230,7 +1255,7 @@ seajs._config = {
     loaderScript = scripts[scripts.length - 1]
   }
 
-  var loaderSrc = util.getScriptAbsoluteSrc(loaderScript) ||
+  var loaderSrc = (loaderScript && util.getScriptAbsoluteSrc(loaderScript)) ||
       util.pageUri // When sea.js is inline, set base to pageUri.
 
   var base = util.dirname(getLoaderActualSrc(loaderSrc))
@@ -1238,21 +1263,11 @@ seajs._config = {
 
   // When src is "http://test.com/libs/seajs/1.0.0/sea.js", redirect base
   // to "http://test.com/libs/"
-  var match = base.match(/^(.+\/)seajs\/[\d\.]+\/$/)
-  if (match) {
-    base = match[1]
-  }
+  var match = base.match(/^(.+\/)seajs\/[\.\d]+(?:-dev)?\/$/)
+  if (match) base = match[1]
 
   config.base = base
-
-
-  var dataMain = loaderScript.getAttribute('data-main')
-  if (dataMain) {
-    config.main = dataMain
-  }
-
-
-  // The default charset of module file.
+  config.main = loaderScript && loaderScript.getAttribute('data-main')
   config.charset = 'utf-8'
 
 
@@ -1436,6 +1451,7 @@ seajs._config = {
   }
 
 })(seajs, seajs._util, this)
+
 /**
  * The bootstrap and entrances
  */
@@ -1457,7 +1473,8 @@ seajs._config = {
   // Loads the data-main module automatically.
   config.main && seajs.use(config.main)
 
-  // Parses the pre-call of seajs.config/seajs.use/define.
+
+    // Parses the pre-call of seajs.config/seajs.use/define.
   // Ref: test/bootstrap/async-3.html
   ;(function(args) {
     if (args) {
@@ -1484,4 +1501,5 @@ seajs._config = {
   delete seajs._seajs
 
 })(seajs, seajs._config, this)
+
 
