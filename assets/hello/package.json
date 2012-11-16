@@ -4,6 +4,6 @@
     "output":{"hello.js":"."},
     "dependencies": {
         "$": "$",
-        "util":"0.0.1"
+        "util":"hellospm/util/0.0.1/util"
     }
 }
